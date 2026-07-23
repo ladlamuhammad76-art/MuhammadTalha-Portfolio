@@ -5,6 +5,47 @@ import { initialPortfolioData } from '../data/initialData';
 const STORAGE_KEY = 'muhammad_talha_portfolio_data_v1';
 const CLOUD_SYNC_URL = 'https://jsonblob.com/api/jsonBlob/019f9105-fc37-75ab-a8ff-fab8a7f9fdf4';
 
+// Helper to safely merge saved/cloud state with default portfolio data without losing sections
+const mergeDataSafely = (incoming: any): PortfolioData => {
+  if (!incoming || typeof incoming !== 'object') {
+    return initialPortfolioData;
+  }
+  return {
+    profile: {
+      ...initialPortfolioData.profile,
+      ...(incoming.profile || {})
+    },
+    experiences: Array.isArray(incoming.experiences) && incoming.experiences.length > 0
+      ? incoming.experiences
+      : initialPortfolioData.experiences,
+    education: Array.isArray(incoming.education) && incoming.education.length > 0
+      ? incoming.education
+      : initialPortfolioData.education,
+    research: Array.isArray(incoming.research) && incoming.research.length > 0
+      ? incoming.research
+      : initialPortfolioData.research,
+    skills: Array.isArray(incoming.skills) && incoming.skills.length > 0
+      ? incoming.skills
+      : initialPortfolioData.skills,
+    projects: Array.isArray(incoming.projects) && incoming.projects.length > 0
+      ? incoming.projects
+      : initialPortfolioData.projects,
+    certifications: Array.isArray(incoming.certifications) && incoming.certifications.length > 0
+      ? incoming.certifications
+      : initialPortfolioData.certifications,
+    conferences: Array.isArray(incoming.conferences) && incoming.conferences.length > 0
+      ? incoming.conferences
+      : initialPortfolioData.conferences,
+    interests: Array.isArray(incoming.interests) && incoming.interests.length > 0
+      ? incoming.interests
+      : initialPortfolioData.interests,
+    appearance: {
+      ...initialPortfolioData.appearance,
+      ...(incoming.appearance || {})
+    }
+  };
+};
+
 interface PortfolioContextType {
   data: PortfolioData;
   isAdmin: boolean;
@@ -56,7 +97,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        return mergeDataSafely(JSON.parse(saved));
       }
     } catch (e) {
       console.error('Failed to load saved portfolio data from localStorage', e);
@@ -67,7 +108,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isCloudLoaded, setIsCloudLoaded] = useState<boolean>(false);
 
-  // Fetch latest cloud state on startup (syncs across devices)
+  // Fetch latest cloud state on startup (syncs across devices gracefully)
   useEffect(() => {
     let isMounted = true;
     fetch(CLOUD_SYNC_URL, {
@@ -78,15 +119,8 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         throw new Error('Cloud sync request failed');
       })
       .then(cloudData => {
-        if (isMounted && cloudData && cloudData.appearance && cloudData.profile) {
-          setData(prev => ({
-            ...initialPortfolioData,
-            ...cloudData,
-            appearance: {
-              ...initialPortfolioData.appearance,
-              ...(cloudData.appearance || {})
-            }
-          }));
+        if (isMounted && cloudData) {
+          setData(prev => mergeDataSafely(cloudData));
           setIsCloudLoaded(true);
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
@@ -96,7 +130,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       })
       .catch(err => {
-        console.warn('Using local cache (cloud sync offline/unavailable):', err);
+        console.warn('Using local/default portfolio data (cloud sync offline):', err);
         setIsCloudLoaded(true);
       });
 
@@ -310,7 +344,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const parsed = JSON.parse(jsonString);
       if (parsed.profile && parsed.experiences && parsed.education) {
-        setData(parsed);
+        setData(mergeDataSafely(parsed));
         return true;
       }
     } catch (e) {
