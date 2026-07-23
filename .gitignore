@@ -98,6 +98,9 @@ dist
 dist
 dist-ssr
 
+# Scratch scripts
+scratch/
+
 # Vercel output
 .vercel
 
