@@ -3,45 +3,69 @@ import { PortfolioData, Profile, Experience, Education, ResearchPublication, Ski
 import { initialPortfolioData } from '../data/initialData';
 
 const STORAGE_KEY = 'muhammad_talha_portfolio_data_v1';
-const CLOUD_SYNC_URL = 'https://jsonblob.com/api/jsonBlob/019f9105-fc37-75ab-a8ff-fab8a7f9fdf4';
+const PASSCODE_STORAGE_KEY = 'muhammad_talha_admin_passcode_v1';
 
-// Helper to safely merge saved/cloud state with default portfolio data without losing sections
+// Default passcode can also be set via environment variable VITE_ADMIN_PASSWORD if provided
+const DEFAULT_PASSCODE = (import.meta.env && import.meta.env.VITE_ADMIN_PASSWORD)
+  ? import.meta.env.VITE_ADMIN_PASSWORD
+  : (initialPortfolioData.appearance.adminPassword || 'admin123');
+
+// Helper to safely merge saved state with default portfolio data without losing sections
 const mergeDataSafely = (incoming: any): PortfolioData => {
   if (!incoming || typeof incoming !== 'object') {
-    return initialPortfolioData;
+    return {
+      ...initialPortfolioData,
+      appearance: {
+        ...initialPortfolioData.appearance,
+        adminPassword: DEFAULT_PASSCODE
+      }
+    };
   }
+
+  // Load custom passcode from localStorage if present
+  let savedPasscode = DEFAULT_PASSCODE;
+  try {
+    const customPass = localStorage.getItem(PASSCODE_STORAGE_KEY);
+    if (customPass) {
+      savedPasscode = customPass;
+    }
+  } catch (e) {
+    console.error('Error reading passcode from storage:', e);
+  }
+
   return {
     profile: {
       ...initialPortfolioData.profile,
       ...(incoming.profile || {})
     },
-    experiences: Array.isArray(incoming.experiences) && incoming.experiences.length > 0
+    experiences: (Array.isArray(incoming.experiences) && incoming.experiences.length > 0)
       ? incoming.experiences
       : initialPortfolioData.experiences,
-    education: Array.isArray(incoming.education) && incoming.education.length > 0
+    education: (Array.isArray(incoming.education) && incoming.education.length > 0)
       ? incoming.education
       : initialPortfolioData.education,
-    research: Array.isArray(incoming.research) && incoming.research.length > 0
+    research: (Array.isArray(incoming.research) && incoming.research.length > 0)
       ? incoming.research
       : initialPortfolioData.research,
-    skills: Array.isArray(incoming.skills) && incoming.skills.length > 0
+    skills: (Array.isArray(incoming.skills) && incoming.skills.length > 0)
       ? incoming.skills
       : initialPortfolioData.skills,
-    projects: Array.isArray(incoming.projects) && incoming.projects.length > 0
+    projects: (Array.isArray(incoming.projects) && incoming.projects.length > 0)
       ? incoming.projects
       : initialPortfolioData.projects,
-    certifications: Array.isArray(incoming.certifications) && incoming.certifications.length > 0
+    certifications: (Array.isArray(incoming.certifications) && incoming.certifications.length > 0)
       ? incoming.certifications
       : initialPortfolioData.certifications,
-    conferences: Array.isArray(incoming.conferences) && incoming.conferences.length > 0
+    conferences: (Array.isArray(incoming.conferences) && incoming.conferences.length > 0)
       ? incoming.conferences
       : initialPortfolioData.conferences,
-    interests: Array.isArray(incoming.interests) && incoming.interests.length > 0
+    interests: (Array.isArray(incoming.interests) && incoming.interests.length > 0)
       ? incoming.interests
       : initialPortfolioData.interests,
     appearance: {
       ...initialPortfolioData.appearance,
-      ...(incoming.appearance || {})
+      ...(incoming.appearance || {}),
+      adminPassword: incoming.appearance?.adminPassword || savedPasscode
     }
   };
 };
@@ -102,64 +126,22 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.error('Failed to load saved portfolio data from localStorage', e);
     }
-    return initialPortfolioData;
+    return mergeDataSafely(initialPortfolioData);
   });
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [isCloudLoaded, setIsCloudLoaded] = useState<boolean>(false);
 
-  // Fetch latest cloud state on startup (syncs across devices gracefully)
-  useEffect(() => {
-    let isMounted = true;
-    fetch(CLOUD_SYNC_URL, {
-      headers: { 'Accept': 'application/json' }
-    })
-      .then(res => {
-        if (res.ok) return res.json();
-        throw new Error('Cloud sync request failed');
-      })
-      .then(cloudData => {
-        if (isMounted && cloudData) {
-          setData(prev => mergeDataSafely(cloudData));
-          setIsCloudLoaded(true);
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
-          } catch (e) {
-            console.error('Failed to update local storage after cloud sync', e);
-          }
-        }
-      })
-      .catch(err => {
-        console.warn('Using local/default portfolio data (cloud sync offline):', err);
-        setIsCloudLoaded(true);
-      });
-
-    return () => { isMounted = false; };
-  }, []);
-
-  // Save to LocalStorage & Cloud whenever data changes (after initial cloud check)
+  // Sync to LocalStorage whenever data changes
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      if (data.appearance?.adminPassword) {
+        localStorage.setItem(PASSCODE_STORAGE_KEY, data.appearance.adminPassword);
+      }
     } catch (e) {
       console.error('Failed to save portfolio data to storage', e);
     }
-
-    if (isCloudLoaded) {
-      const timer = setTimeout(() => {
-        fetch(CLOUD_SYNC_URL, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(data)
-        }).catch(err => console.warn('Cloud sync push error:', err));
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [data, isCloudLoaded]);
+  }, [data]);
 
   const updateProfile = (profileUpdate: Partial<Profile>) => {
     setData(prev => ({
@@ -326,6 +308,11 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const updateAdminPassword = (newPass: string) => {
+    try {
+      localStorage.setItem(PASSCODE_STORAGE_KEY, newPass);
+    } catch (e) {
+      console.error('Failed to save passcode to storage', e);
+    }
     setData(prev => ({
       ...prev,
       appearance: {
@@ -338,6 +325,7 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const resetToInitialData = () => {
     setData(initialPortfolioData);
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(PASSCODE_STORAGE_KEY);
   };
 
   const importJsonData = (jsonString: string): boolean => {
