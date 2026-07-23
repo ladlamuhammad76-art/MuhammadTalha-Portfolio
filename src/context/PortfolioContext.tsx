@@ -3,6 +3,7 @@ import { PortfolioData, Profile, Experience, Education, ResearchPublication, Ski
 import { initialPortfolioData } from '../data/initialData';
 
 const STORAGE_KEY = 'muhammad_talha_portfolio_data_v1';
+const CLOUD_SYNC_URL = 'https://jsonblob.com/api/jsonBlob/019f9105-fc37-75ab-a8ff-fab8a7f9fdf4';
 
 interface PortfolioContextType {
   data: PortfolioData;
@@ -58,20 +59,73 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return JSON.parse(saved);
       }
     } catch (e) {
-      console.error('Failed to load saved portfolio data', e);
+      console.error('Failed to load saved portfolio data from localStorage', e);
     }
     return initialPortfolioData;
   });
 
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isCloudLoaded, setIsCloudLoaded] = useState<boolean>(false);
 
+  // Fetch latest cloud state on startup (syncs across devices)
+  useEffect(() => {
+    let isMounted = true;
+    fetch(CLOUD_SYNC_URL, {
+      headers: { 'Accept': 'application/json' }
+    })
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Cloud sync request failed');
+      })
+      .then(cloudData => {
+        if (isMounted && cloudData && cloudData.appearance && cloudData.profile) {
+          setData(prev => ({
+            ...initialPortfolioData,
+            ...cloudData,
+            appearance: {
+              ...initialPortfolioData.appearance,
+              ...(cloudData.appearance || {})
+            }
+          }));
+          setIsCloudLoaded(true);
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData));
+          } catch (e) {
+            console.error('Failed to update local storage after cloud sync', e);
+          }
+        }
+      })
+      .catch(err => {
+        console.warn('Using local cache (cloud sync offline/unavailable):', err);
+        setIsCloudLoaded(true);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  // Save to LocalStorage & Cloud whenever data changes (after initial cloud check)
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
       console.error('Failed to save portfolio data to storage', e);
     }
-  }, [data]);
+
+    if (isCloudLoaded) {
+      const timer = setTimeout(() => {
+        fetch(CLOUD_SYNC_URL, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(data)
+        }).catch(err => console.warn('Cloud sync push error:', err));
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [data, isCloudLoaded]);
 
   const updateProfile = (profileUpdate: Partial<Profile>) => {
     setData(prev => ({
